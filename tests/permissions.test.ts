@@ -26,6 +26,27 @@ describe('parsePermissions', () => {
     expect(parsePermissions("issues: 'read'")).toEqual({ issues: 'read' });
   });
 
+  it('tolerates trailing whitespace and tabs around the value', () => {
+    expect(parsePermissions('contents: write   ')).toEqual({ contents: 'write' });
+    expect(parsePermissions('contents:\twrite')).toEqual({ contents: 'write' });
+  });
+
+  it('handles CRLF line endings (Windows-authored workflows)', () => {
+    expect(parsePermissions('contents: write\r\nissues: read\r\n')).toEqual({
+      contents: 'write',
+      issues: 'read',
+    });
+  });
+
+  it('accepts a missing space after the colon', () => {
+    expect(parsePermissions('contents:write')).toEqual({ contents: 'write' });
+  });
+
+  it('strips an inline comment (consistent with full-line comments)', () => {
+    expect(parsePermissions('contents: write # bump on release')).toEqual({ contents: 'write' });
+    expect(parsePermissions('issues: "read"   # quoted + comment')).toEqual({ issues: 'read' });
+  });
+
   it('rejects a value that is not exactly read or write', () => {
     expect(() => parsePermissions('contents: admin')).toThrow(/must be exactly "read" or "write"/);
     expect(() => parsePermissions('contents: WRITE')).toThrow(/must be exactly "read" or "write"/);

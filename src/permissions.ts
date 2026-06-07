@@ -38,8 +38,15 @@ export function parsePermissions(input: string): Record<string, Permission> | un
     }
 
     const name = line.slice(0, separator).trim();
-    // Strip surrounding quotes so `contents: "write"` is accepted too.
-    const value = line.slice(separator + 1).trim().replace(/^["']|["']$/g, '');
+    // Strip an inline `# comment` (YAML treats `#` as a comment only when
+    // preceded by whitespace) so `contents: write # note` matches the
+    // already-supported full-line `# comment` behaviour. Then drop surrounding
+    // quotes so `contents: "write"` is accepted too.
+    const value = line
+      .slice(separator + 1)
+      .replace(/\s+#.*$/, '')
+      .trim()
+      .replace(/^["']|["']$/g, '');
 
     if (!name) {
       throw new Error(`Invalid permissions line (missing permission name): "${line}"`);
