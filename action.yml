@@ -1,0 +1,60 @@
+name: 'My App Token'
+description: 'Exchange a GitHub Actions OIDC token for a GitHub App installation token.'
+author: 'awinogradov'
+branding:
+  icon: 'key'
+  color: 'purple'
+
+inputs:
+  exchange-url:
+    required: true
+    description: >-
+      Full URL of the token-exchange server's POST /github-app-token-exchange
+      endpoint, e.g. https://exchange.example.com/github-app-token-exchange.
+      Must be https:// (http://localhost is allowed for local testing).
+  audience:
+    required: true
+    description: >-
+      The OIDC audience to request via core.getIDToken(). Must match the
+      audience the exchange server validates, otherwise the exchange is rejected.
+  permissions:
+    required: false
+    description: >-
+      Optional multi-line YAML mapping of permission name to "read" or "write",
+      one per line, e.g.:
+        contents: write
+        issues: write
+      Sent to the exchange server as a JSON object. If omitted, no permissions
+      field is sent and the server's default scope applies.
+  timeout-ms:
+    required: false
+    default: '10000'
+    description: 'Timeout in milliseconds for the HTTP request to the exchange server.'
+
+outputs:
+  token:
+    description: 'The minted GitHub App installation token (masked in logs).'
+    value: ${{ steps.exchange.outputs.token }}
+  expires-at:
+    description: 'ISO 8601 expiry timestamp of the token.'
+    value: ${{ steps.exchange.outputs.expires-at }}
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: '1'
+    - name: Install deps
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: bun install --frozen-lockfile
+    - id: exchange
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        INPUT_EXCHANGE-URL: ${{ inputs.exchange-url }}
+        INPUT_AUDIENCE: ${{ inputs.audience }}
+        INPUT_PERMISSIONS: ${{ inputs.permissions }}
+        INPUT_TIMEOUT-MS: ${{ inputs.timeout-ms }}
+      run: bun run src/main.ts

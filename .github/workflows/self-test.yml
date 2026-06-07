@@ -1,0 +1,84 @@
+name: self-test
+
+# Exercises the action end to end against a tiny in-repo mock exchange server.
+# Uses a real GitHub OIDC token (id-token: write) but a fake exchange backend,
+# so no GitHub App or real exchange deployment is required.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1'
+      - run: bun install --frozen-lockfile
+      - run: bun run test
+      - run: bun run typecheck
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1'
+
+      - name: Start mock exchange server
+        env:
+          PORT: '8080'
+        run: |
+          bun run mock/server.ts &
+          echo "MOCK_PID=$!" >> "$GITHUB_ENV"
+          # Wait for the server to accept connections.
+          for i in $(seq 1 30); do
+            if curl -sf -o /dev/null -X POST http://localhost:8080/github-app-token-exchange \
+              -H 'Content-Type: application/json' -d '{"oidc_token":"ping"}'; then
+              echo "mock server is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "mock server did not start in time" >&2
+          exit 1
+
+      - name: Exchange OIDC token
+        id: app-token
+        uses: ./
+        with:
+          exchange-url: http://localhost:8080/github-app-token-exchange
+          audience: my-bot-github-action
+          permissions: |
+            contents: write
+            issues: write
+
+      - name: Assert outputs are set (without leaking the token)
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
+          EXPIRES_AT: ${{ steps.app-token.outputs.expires-at }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "expected a non-empty token output" >&2
+            exit 1
+          fi
+          if [ -z "$EXPIRES_AT" ]; then
+            echo "expected a non-empty expires-at output" >&2
+            exit 1
+          fi
+          # Echoing the token must render as a masked ***, never the real value.
+          echo "token output (masked by the runner): $TOKEN"
+          echo "expires-at: $EXPIRES_AT"
+
+      - name: Stop mock server
+        if: always()
+        run: kill "$MOCK_PID" || true
